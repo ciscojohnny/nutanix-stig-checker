@@ -97,6 +97,55 @@ function Get-NutanixStigControlResults {
     return $all
 }
 
+function Get-NutanixClusterInventory {
+    <#
+    .SYNOPSIS
+        Lists clusters registered on Prism Central or the local cluster on Prism Element.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][hashtable]$Session
+    )
+
+    $response = Invoke-NutanixApi -Session $Session -Path '/api/nutanix/v3/clusters/list' -Method Post -Body @{
+        kind   = 'cluster'
+        length = 500
+        offset = 0
+    }
+
+    $inventory = [System.Collections.Generic.List[object]]::new()
+    foreach ($entity in @($response.entities)) {
+        $name = $entity.status.name
+        $uuid = $entity.metadata.uuid
+        $nodeList = $entity.status.resources.nodes
+        $nodes = if ($nodeList -and $nodeList.hypervisor_server_list) {
+            @($nodeList.hypervisor_server_list).Count
+        } elseif ($entity.status.resources.node_uuids) {
+            @($entity.status.resources.node_uuids).Count
+        } else {
+            '?'
+        }
+
+        $config = $entity.status.resources.config
+        $version = ''
+        if ($config -and $config.software_map -and $config.software_map.NOS) {
+            $version = $config.software_map.NOS.version
+        } elseif ($config -and $config.build_info) {
+            $version = $config.build_info.version
+        }
+
+        $inventory.Add([PSCustomObject]@{
+            ClusterName = $name
+            ClusterUuid = $uuid
+            NodeCount   = $nodes
+            AosVersion  = $version
+            Hypervisor  = 'AHV'
+        })
+    }
+
+    return $inventory
+}
+
 function Get-NutanixClusterMap {
     [CmdletBinding()]
     param([Parameter(Mandatory)][hashtable]$Session)
@@ -138,7 +187,6 @@ function Convert-NutanixStigStatus {
 function Invoke-NutanixNativeStigAudit {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SiteName,
         [Parameter(Mandatory)][hashtable]$Session,
         [Parameter(Mandatory)][string[]]$ClusterNames,
         [string]$StigName = 'Nutanix Acropolis GPOS'
@@ -152,7 +200,7 @@ function Invoke-NutanixNativeStigAudit {
         $target = "$($Session.Fqdn) / $clusterName"
 
         if (-not $clusterExtId) {
-            $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+            $results.Add((New-StigResult -Cluster $clusterName -Target $target -StigName $StigName `
                 -RuleId 'N/A' -Title 'Cluster discovery' -Status 'Error' `
                 -Details "Cluster '$clusterName' not found in Prism Central"))
             continue
@@ -161,14 +209,14 @@ function Invoke-NutanixNativeStigAudit {
         try {
             $controls = Get-NutanixStigControlResults -Session $Session -ClusterExtId $clusterExtId
         } catch {
-            $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+            $results.Add((New-StigResult -Cluster $clusterName -Target $target -StigName $StigName `
                 -RuleId 'N/A' -Title 'STIG API retrieval' -Status 'Error' `
                 -Details $_.Exception.Message))
             continue
         }
 
         if (@($controls).Count -eq 0) {
-            $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+            $results.Add((New-StigResult -Cluster $clusterName -Target $target -StigName $StigName `
                 -RuleId 'N/A' -Title 'STIG scan data' -Status 'Manual' `
                 -Details 'No STIG controls returned. Run STIG scan in Prism Central Security Dashboard first.'))
             continue
@@ -181,7 +229,7 @@ function Invoke-NutanixNativeStigAudit {
             $status = Convert-NutanixStigStatus -ApiStatus $ctrl.status -ComplianceStatus $ctrl.complianceStatus
             $details = if ($ctrl.remediation) { $ctrl.remediation } elseif ($ctrl.description) { $ctrl.description } else { '' }
 
-            $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+            $results.Add((New-StigResult -Cluster $clusterName -Target $target -StigName $StigName `
                 -RuleId $ruleId -Severity $severity -Title $title -Status $status -Details $details))
         }
     }
@@ -196,9 +244,8 @@ function Invoke-NutanixApplicationServerStigAudit {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SiteName,
-        [Parameter(Mandatory)][hashtable]$Session,
-        [Parameter(Mandatory)][string]$ClusterName
+        [Parameter(Mandatory)][string]$ClusterName,
+        [Parameter(Mandatory)][hashtable]$Session
     )
 
     $stigName = 'Nutanix Acropolis Application Server'
@@ -207,7 +254,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 
     # V-279418 - TLS enabled
     $results.Add((Invoke-SafeStigCheck -ResultTemplate @{
-        Site = $SiteName; Target = $target; StigName = $stigName
+        Cluster = $ClusterName; Target = $target; StigName = $stigName
         RuleId = 'V-279418'; Severity = 'medium'
         Title = 'Nutanix AOS must have TLS enabled.'
         Status = 'Pass'; Details = ''; Expected = 'HTTPS/TLS on management interfaces'; Actual = ''
@@ -221,7 +268,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 
     # V-279450 - NTP configured
     $results.Add((Invoke-SafeStigCheck -ResultTemplate @{
-        Site = $SiteName; Target = $target; StigName = $stigName
+        Cluster = $ClusterName; Target = $target; StigName = $stigName
         RuleId = 'V-279450'; Severity = 'medium'
         Title = 'Nutanix AOS must configure Network Time Protocol (NTP).'
         Status = 'Manual'; Details = ''
@@ -242,7 +289,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 
     # V-279433 - Enterprise user management (directory services)
     $results.Add((Invoke-SafeStigCheck -ResultTemplate @{
-        Site = $SiteName; Target = $target; StigName = $stigName
+        Cluster = $ClusterName; Target = $target; StigName = $stigName
         RuleId = 'V-279433'; Severity = 'high'
         Title = 'Nutanix AOS must use an enterprise user management system.'
         Status = 'Manual'; Details = ''
@@ -263,7 +310,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 
     # V-279440 - LDAP encryption
     $results.Add((Invoke-SafeStigCheck -ResultTemplate @{
-        Site = $SiteName; Target = $target; StigName = $stigName
+        Cluster = $ClusterName; Target = $target; StigName = $stigName
         RuleId = 'V-279440'; Severity = 'medium'
         Title = 'Nutanix AOS must use encryption when using LDAP for authentication.'
         Status = 'Manual'; Details = ''
@@ -323,7 +370,7 @@ function Invoke-NutanixApplicationServerStigAudit {
     $automated = @('V-279418', 'V-279450', 'V-279433', 'V-279440')
     foreach ($rule in $manualRules) {
         if ($rule.Id -in $automated) { continue }
-        $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $stigName `
+        $results.Add((New-StigResult -Cluster $ClusterName -Target $target -StigName $stigName `
             -RuleId $rule.Id -Severity $rule.Sev -Title $rule.Title -Status 'Manual' `
             -Details 'Requires manual validation in Prism / policy documentation.'))
     }
@@ -334,6 +381,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 Export-ModuleMember -Function @(
     'Connect-NutanixPrism',
     'Invoke-NutanixApi',
+    'Get-NutanixClusterInventory',
     'Get-NutanixStigControlResults',
     'Invoke-NutanixNativeStigAudit',
     'Invoke-NutanixApplicationServerStigAudit'

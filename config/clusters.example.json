@@ -1,0 +1,5 @@
+{
+  "stigXmlPath": "C:\\STIGs\\U_VMW_vSphere_8-0_Y25M04_STIG",
+  "outputPath": ".\\reports",
+  "skipCertificateCheck": true
+}

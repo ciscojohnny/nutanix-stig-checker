@@ -35,7 +35,7 @@ function Invoke-VmwareVcsaApplianceStigAudit {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SiteName,
+        [Parameter(Mandatory)][string]$ClusterName,
         [Parameter(Mandatory)][string]$VcsaFqdn,
         [Parameter(Mandatory)][pscredential]$Credential
     )
@@ -160,7 +160,7 @@ function Invoke-VmwareVcsaApplianceStigAudit {
             $outcome = @{ Status = 'Error'; Details = $_.Exception.Message; Actual = '' }
         }
 
-        $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $check.StigName `
+        $results.Add((New-StigResult -Cluster $ClusterName -Target $target -StigName $check.StigName `
             -RuleId $check.RuleId -Severity 'medium' -Title $check.Title `
             -Status $outcome.Status -Details ($outcome.Details ?? '') -Actual ($outcome.Actual ?? '')))
     }
@@ -179,7 +179,7 @@ function Invoke-VmwareVcsaApplianceStigAudit {
     )
 
     foreach ($comp in $inspecComponents) {
-        $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $comp `
+        $results.Add((New-StigResult -Cluster $ClusterName -Target $target -StigName $comp `
             -RuleId 'INFO-INspec' -Severity 'low' -Title 'Remaining controls via VMware InSpec baseline' `
             -Status 'Manual' -Details @"
 For complete $comp coverage, run the official VMware vSphere 8.0 STIG InSpec profile:

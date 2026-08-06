@@ -45,9 +45,8 @@ function Test-EsxiSettingIn {
 function Invoke-VmwareEsxiStigAudit {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SiteName,
-        [Parameter(Mandatory)]$VIConnection,
         [Parameter(Mandatory)][string]$ClusterName,
+        [Parameter(Mandatory)]$VIConnection,
         [string]$StigName = 'VMware vSphere 8.0 ESXi'
     )
 
@@ -235,7 +234,7 @@ function Invoke-VmwareEsxiStigAudit {
         foreach ($host in $hosts) {
             $target = "$($host.Name) ($ClusterName)"
             $outcome = & $check.Test $host
-            $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+            $results.Add((New-StigResult -Cluster $ClusterName -Target $target -StigName $StigName `
                 -RuleId $check.RuleId -Severity $check.Severity -Title $check.Title `
                 -Status $outcome.Status -Details ($outcome.Details ?? '') `
                 -Actual ($outcome.Actual ?? '') -Expected ''))
@@ -248,7 +247,7 @@ function Invoke-VmwareEsxiStigAudit {
 function Invoke-VmwareVCenterStigAudit {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$SiteName,
+        [Parameter(Mandatory)][string]$ClusterName,
         [Parameter(Mandatory)]$VIConnection,
         [string]$StigName = 'VMware vSphere 8.0 vCenter'
     )
@@ -304,7 +303,7 @@ function Invoke-VmwareVCenterStigAudit {
 
     foreach ($check in $checks) {
         $outcome = & $check.Test
-        $results.Add((New-StigResult -Site $SiteName -Target $target -StigName $StigName `
+        $results.Add((New-StigResult -Cluster $ClusterName -Target $target -StigName $StigName `
             -RuleId $check.RuleId -Severity 'medium' -Title $check.Title `
             -Status $outcome.Status -Details ($outcome.Details ?? '')))
     }
@@ -312,8 +311,49 @@ function Invoke-VmwareVCenterStigAudit {
     return $results
 }
 
+function Get-VmwareClusterInventory {
+    <#
+    .SYNOPSIS
+        Lists vSphere clusters from a connected or new vCenter session.
+    #>
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory)][string]$VCenterFqdn,
+        [Parameter(Mandatory)][pscredential]$Credential,
+        [switch]$SkipCertificateCheck,
+        $ExistingConnection
+    )
+
+    $ownedConnection = $false
+    $viConn = $ExistingConnection
+    if (-not $viConn) {
+        $viConn = Connect-VmwareStigSession -VCenterFqdn $VCenterFqdn -Credential $Credential `
+            -SkipCertificateCheck:$SkipCertificateCheck
+        $ownedConnection = $true
+    }
+
+    try {
+        $inventory = [System.Collections.Generic.List[object]]::new()
+        foreach ($cluster in @(Get-Cluster -Server $viConn)) {
+            $hosts = @(Get-VMHost -Location $cluster -Server $viConn)
+            $inventory.Add([PSCustomObject]@{
+                ClusterName = $cluster.Name
+                ClusterUuid = $cluster.Id
+                NodeCount   = $hosts.Count
+                Hypervisor  = 'ESXi'
+            })
+        }
+        return $inventory
+    } finally {
+        if ($ownedConnection) {
+            Disconnect-VIServer -Server $viConn -Confirm:$false -ErrorAction SilentlyContinue | Out-Null
+        }
+    }
+}
+
 Export-ModuleMember -Function @(
     'Connect-VmwareStigSession',
+    'Get-VmwareClusterInventory',
     'Invoke-VmwareEsxiStigAudit',
     'Invoke-VmwareVCenterStigAudit'
 )

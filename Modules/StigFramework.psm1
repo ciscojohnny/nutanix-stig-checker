@@ -4,7 +4,7 @@ Set-StrictMode -Version Latest
 function New-StigResult {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][string]$Site,
+        [Parameter(Mandatory)][string]$Cluster,
         [Parameter(Mandatory)][string]$Target,
         [Parameter(Mandatory)][string]$StigName,
         [Parameter(Mandatory)][string]$RuleId,
@@ -18,7 +18,7 @@ function New-StigResult {
     )
 
     [PSCustomObject]@{
-        Site     = $Site
+        Cluster  = $Cluster
         Target   = $Target
         StigName = $StigName
         RuleId   = $RuleId
@@ -185,7 +185,7 @@ function Write-StigDetailTable {
     }
 
     Write-Host "`n=== $Title ===" -ForegroundColor Cyan
-    $display = $filtered | Select-Object Site, Target, RuleId, Severity, Status, Title, Details
+    $display = $filtered | Select-Object Cluster, Target, RuleId, Severity, Status, Title, Details
     $display | Format-Table -AutoSize -Wrap
 }
 
