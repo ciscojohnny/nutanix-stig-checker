@@ -1,0 +1,124 @@
+{
+  "stigXmlPath": "C:\\STIGs\\U_VMW_vSphere_8-0_Y25M04_STIG",
+  "outputPath": ".\\reports",
+  "skipCertificateCheck": true,
+  "sites": [
+    {
+      "name": "Site-A",
+      "nutanix": {
+        "prismCentral": {
+          "fqdn": "pc-site-a.example.mil",
+          "port": 9440
+        },
+        "clusters": [
+          {
+            "name": "AHV-Mgmt-3node",
+            "type": "AHV",
+            "nodeCount": 3,
+            "prismElementFqdn": "pe-ahv-mgmt-site-a.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-A",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-a-site-a.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-B",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-b-site-a.example.mil"
+          }
+        ]
+      },
+      "vmware": {
+        "vCenter": {
+          "fqdn": "vcenter-site-a.example.mil",
+          "port": 443
+        },
+        "esxiCluster": {
+          "name": "ESXi-3node",
+          "nodeCount": 3
+        }
+      }
+    },
+    {
+      "name": "Site-B",
+      "nutanix": {
+        "prismCentral": {
+          "fqdn": "pc-site-b.example.mil",
+          "port": 9440
+        },
+        "clusters": [
+          {
+            "name": "AHV-Mgmt-3node",
+            "type": "AHV",
+            "nodeCount": 3,
+            "prismElementFqdn": "pe-ahv-mgmt-site-b.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-A",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-a-site-b.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-B",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-b-site-b.example.mil"
+          }
+        ]
+      },
+      "vmware": {
+        "vCenter": {
+          "fqdn": "vcenter-site-b.example.mil",
+          "port": 443
+        },
+        "esxiCluster": {
+          "name": "ESXi-3node",
+          "nodeCount": 3
+        }
+      }
+    },
+    {
+      "name": "Site-C",
+      "nutanix": {
+        "prismCentral": {
+          "fqdn": "pc-site-c.example.mil",
+          "port": 9440
+        },
+        "clusters": [
+          {
+            "name": "AHV-Mgmt-3node",
+            "type": "AHV",
+            "nodeCount": 3,
+            "prismElementFqdn": "pe-ahv-mgmt-site-c.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-A",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-a-site-c.example.mil"
+          },
+          {
+            "name": "AHV-Prod-4node-B",
+            "type": "AHV",
+            "nodeCount": 4,
+            "prismElementFqdn": "pe-ahv-prod-b-site-c.example.mil"
+          }
+        ]
+      },
+      "vmware": {
+        "vCenter": {
+          "fqdn": "vcenter-site-c.example.mil",
+          "port": 443
+        },
+        "esxiCluster": {
+          "name": "ESXi-3node",
+          "nodeCount": 3
+        }
+      }
+    }
+  ]
+}
