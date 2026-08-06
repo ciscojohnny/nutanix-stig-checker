@@ -75,6 +75,10 @@ function Show-ClusterStigSummary {
     Write-Host "    Name:       $($Cluster.ClusterName)"
     Write-Host "    Type:       $($Cluster.WorkflowType)"
     Write-Host "    Nodes:      $($Cluster.NodeCount)"
+    if ($Cluster.PrismFqdn) {
+        $prismLabel = if ($Cluster.PrismEndpointType -eq 'PE') { 'Prism Element' } else { 'Prism Central' }
+        Write-Host "    Discovered: $prismLabel ($($Cluster.PrismFqdn):$($Cluster.PrismPort))"
+    }
     Write-Host "    Endpoint:   $($Cluster.ManagementLabel) ($($Cluster.ManagementFqdn):$($Cluster.ManagementPort))"
     if ($Cluster.ClusterUuid) {
         Write-Host "    UUID:       $($Cluster.ClusterUuid)" -ForegroundColor DarkGray
@@ -86,11 +90,13 @@ function Show-ClusterStigSummary {
 function Select-ClusterFromInventory {
     param(
         [Parameter(Mandatory)][object[]]$Inventory,
-        [Parameter(Mandatory)][string]$SourceLabel
+        [Parameter(Mandatory)][string]$SourceLabel,
+        [string]$EmptyMessage = ''
     )
 
     if (@($Inventory).Count -eq 0) {
-        throw "No clusters returned from $SourceLabel."
+        $msg = if ($EmptyMessage) { $EmptyMessage } else { "No clusters returned from $SourceLabel." }
+        throw $msg
     }
 
     Write-Host ''
@@ -98,21 +104,23 @@ function Select-ClusterFromInventory {
     for ($i = 0; $i -lt $Inventory.Count; $i++) {
         $c = $Inventory[$i]
         $version = if ($c.AosVersion) { " | AOS $($c.AosVersion)" } else { '' }
-        Write-Host ("  {0}. {1} ({2} nodes{3})" -f ($i + 1), $c.ClusterName, $c.NodeCount, $version)
+        $hypervisor = if ($c.Hypervisor) { " | $($c.Hypervisor)" } else { '' }
+        Write-Host ("  {0}. {1} ({2} nodes{3}{4})" -f ($i + 1), $c.ClusterName, $c.NodeCount, $version, $hypervisor)
     }
 
     $choice = Read-WizardChoice -Prompt 'Cluster' -Min 1 -Max $Inventory.Count
     return $Inventory[$choice - 1]
 }
 
-function Get-AhvClusterFromPrismWizard {
+function Connect-PrismFromWizard {
     param(
         [switch]$SkipCertificateCheck,
-        [pscredential]$NutanixCredential
+        [pscredential]$NutanixCredential,
+        [string]$StepLabel = 'Step 2: Nutanix management endpoint'
     )
 
     Write-Host ''
-    Write-Host 'Step 2: Nutanix management endpoint' -ForegroundColor White
+    Write-Host $StepLabel -ForegroundColor White
     Write-Host '  1. Prism Central  (lists all registered clusters)'
     Write-Host '  2. Prism Element   (local cluster on a single PE instance)'
     Write-Host ''
@@ -136,30 +144,62 @@ function Get-AhvClusterFromPrismWizard {
     $session = Connect-NutanixPrism -Fqdn $fqdn -Port $port -Credential $NutanixCredential `
         -SkipCertificateCheck:$SkipCertificateCheck
 
-    Write-Host 'Retrieving cluster inventory...' -ForegroundColor Cyan
-    $discovered = @(Get-NutanixClusterInventory -Session $session)
-    $picked = Select-ClusterFromInventory -Inventory $discovered -SourceLabel $endpointLabel
+    return [PSCustomObject]@{
+        Session             = $session
+        Fqdn                = $fqdn
+        Port                = $port
+        PrismType           = $prismType
+        EndpointLabel       = $endpointLabel
+        NutanixCredential   = $NutanixCredential
+    }
+}
+
+function Get-AhvClusterFromPrismWizard {
+    param(
+        [switch]$SkipCertificateCheck,
+        [pscredential]$NutanixCredential
+    )
+
+    $prism = Connect-PrismFromWizard -SkipCertificateCheck:$SkipCertificateCheck `
+        -NutanixCredential $NutanixCredential
+
+    Write-Host 'Retrieving AHV cluster inventory...' -ForegroundColor Cyan
+    $discovered = @(Get-NutanixClusterInventory -Session $prism.Session -HypervisorFilter 'AHV')
+    $picked = Select-ClusterFromInventory -Inventory $discovered -SourceLabel $prism.EndpointLabel `
+        -EmptyMessage "No AHV clusters found on $($prism.EndpointLabel). Select VMware ESXi workflow for ESXi clusters."
 
     $selection = New-StigClusterSelection -ClusterName $picked.ClusterName `
-        -WorkflowType 'AHV' -ManagementFqdn $fqdn -ManagementPort $port `
-        -NodeCount $picked.NodeCount -PrismEndpointType $prismType -ClusterUuid $picked.ClusterUuid
+        -WorkflowType 'AHV' -ManagementFqdn $prism.Fqdn -ManagementPort $prism.Port `
+        -NodeCount $picked.NodeCount -PrismEndpointType $prism.PrismType -ClusterUuid $picked.ClusterUuid `
+        -PrismFqdn $prism.Fqdn -PrismPort $prism.Port
 
     return @{
         Cluster            = $selection
-        NutanixCredential  = $NutanixCredential
+        NutanixCredential  = $prism.NutanixCredential
         IncludeVcsaSsh     = $false
     }
 }
 
-function Get-EsxiClusterFromVcenterWizard {
+function Get-EsxiClusterFromPrismWizard {
     param(
         [switch]$SkipCertificateCheck,
+        [pscredential]$NutanixCredential,
         [pscredential]$VmwareCredential
     )
 
+    $prism = Connect-PrismFromWizard -SkipCertificateCheck:$SkipCertificateCheck `
+        -NutanixCredential $NutanixCredential `
+        -StepLabel 'Step 2: Nutanix management endpoint (discover ESXi cluster)'
+
+    Write-Host 'Retrieving ESXi cluster inventory...' -ForegroundColor Cyan
+    $discovered = @(Get-NutanixClusterInventory -Session $prism.Session -HypervisorFilter 'ESXi')
+    $picked = Select-ClusterFromInventory -Inventory $discovered -SourceLabel $prism.EndpointLabel `
+        -EmptyMessage "No ESXi clusters found on $($prism.EndpointLabel). Verify hypervisor type or use Nutanix AHV workflow."
+
     Write-Host ''
-    Write-Host 'Step 2: vCenter connection' -ForegroundColor White
-    $fqdn = Read-WizardFqdn -Prompt 'vCenter FQDN or IP'
+    Write-Host 'Step 3: vCenter connection' -ForegroundColor White
+    Write-Host "  ESXi cluster selected in Prism: $($picked.ClusterName)" -ForegroundColor DarkGray
+    $vcFqdn = Read-WizardFqdn -Prompt 'vCenter FQDN or IP'
 
     if (-not $VmwareCredential) {
         Write-Host ''
@@ -167,24 +207,34 @@ function Get-EsxiClusterFromVcenterWizard {
     }
 
     Write-Host ''
-    Write-Host "Connecting to vCenter at $fqdn..." -ForegroundColor Cyan
-    Write-Host 'Retrieving cluster inventory...' -ForegroundColor Cyan
-    $discovered = @(Get-VmwareClusterInventory -VCenterFqdn $fqdn -Credential $VmwareCredential `
+    Write-Host "Connecting to vCenter at $vcFqdn..." -ForegroundColor Cyan
+    Write-Host 'Matching cluster on vCenter...' -ForegroundColor Cyan
+    $vcInventory = @(Get-VmwareClusterInventory -VCenterFqdn $vcFqdn -Credential $VmwareCredential `
         -SkipCertificateCheck:$SkipCertificateCheck)
 
-    $picked = Select-ClusterFromInventory -Inventory $discovered -SourceLabel "vCenter ($fqdn)"
-
-    $selection = New-StigClusterSelection -ClusterName $picked.ClusterName `
-        -WorkflowType 'ESXi' -ManagementFqdn $fqdn -ManagementPort 443 `
-        -NodeCount $picked.NodeCount -ClusterUuid $picked.ClusterUuid
+    $vcMatch = $vcInventory | Where-Object ClusterName -eq $picked.ClusterName | Select-Object -First 1
+    if (-not $vcMatch) {
+        Write-Host ''
+        Write-Host "Cluster '$($picked.ClusterName)' was not found on vCenter." -ForegroundColor Yellow
+        Write-Host 'Select the matching vCenter cluster to audit:' -ForegroundColor Yellow
+        $vcMatch = Select-ClusterFromInventory -Inventory $vcInventory -SourceLabel "vCenter ($vcFqdn)"
+    } else {
+        Write-Host "  Matched vCenter cluster: $($vcMatch.ClusterName) ($($vcMatch.NodeCount) hosts)" -ForegroundColor Green
+    }
 
     Write-Host ''
-    Write-Host 'Step 3: VCSA appliance STIG checks (SSH)' -ForegroundColor White
+    Write-Host 'Step 4: VCSA appliance STIG checks (SSH)' -ForegroundColor White
     Write-Host '  Photon OS, PostgreSQL, VAMI, Envoy, EAM, Lookup, STS, UI, Perfcharts'
     $includeVcsaSsh = Confirm-WizardContinue -Prompt 'Include VCSA SSH appliance checks?'
 
+    $selection = New-StigClusterSelection -ClusterName $vcMatch.ClusterName `
+        -WorkflowType 'ESXi' -ManagementFqdn $vcFqdn -ManagementPort 443 `
+        -NodeCount $vcMatch.NodeCount -ClusterUuid $vcMatch.ClusterUuid `
+        -PrismEndpointType $prism.PrismType -PrismFqdn $prism.Fqdn -PrismPort $prism.Port
+
     return @{
         Cluster           = $selection
+        NutanixCredential = $prism.NutanixCredential
         VMwareCredential  = $VmwareCredential
         IncludeVcsaSsh    = $includeVcsaSsh
     }
@@ -208,6 +258,7 @@ function Invoke-StigClusterWizard {
     Write-Host ''
     Write-Host '  2. VMware ESXi'
     Write-Host '     STIGs: ESXi, vCenter, VCSA appliance components (optional SSH)'
+    Write-Host '     Discover ESXi cluster via Prism, then connect to vCenter'
     Write-Host ''
 
     $typeChoice = Read-WizardChoice -Prompt 'Cluster type' -Min 1 -Max 2
@@ -219,8 +270,8 @@ function Invoke-StigClusterWizard {
         Get-AhvClusterFromPrismWizard -SkipCertificateCheck:$SkipCertificateCheck `
             -NutanixCredential $NutanixCredential
     } else {
-        Get-EsxiClusterFromVcenterWizard -SkipCertificateCheck:$SkipCertificateCheck `
-            -VmwareCredential $VmwareCredential
+        Get-EsxiClusterFromPrismWizard -SkipCertificateCheck:$SkipCertificateCheck `
+            -NutanixCredential $NutanixCredential -VmwareCredential $VmwareCredential
     }
 
     Show-ClusterStigSummary -Cluster $wizardData.Cluster

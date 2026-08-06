@@ -4,7 +4,7 @@
     Nutanix STIG Checker — interactive cluster STIG audit (AHV or ESXi).
 
 .DESCRIPTION
-    Connects to Prism Central, Prism Element, or vCenter, discovers cluster
+    Connects to Prism Central, Prism Element, and vCenter, discovers cluster
     inventory live, and audits ONE cluster at a time.
 
     Workflows:
@@ -229,7 +229,7 @@ function Resolve-DirectAhvCluster {
 
     $session = Connect-NutanixPrism -Fqdn $PrismFqdn -Port $Port -Credential $Credential `
         -SkipCertificateCheck:$SkipCertificateCheck
-    $discovered = @(Get-NutanixClusterInventory -Session $session)
+    $discovered = @(Get-NutanixClusterInventory -Session $session -HypervisorFilter 'AHV')
     $match = $discovered | Where-Object ClusterName -eq $ClusterName | Select-Object -First 1
     if (-not $match) {
         $names = ($discovered | ForEach-Object ClusterName) -join ', '

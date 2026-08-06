@@ -97,6 +97,43 @@ function Get-NutanixStigControlResults {
     return $all
 }
 
+function Resolve-NutanixClusterHypervisor {
+    <#
+    .SYNOPSIS
+        Derives cluster hypervisor type (AHV, ESXi, etc.) from Prism cluster entity payload.
+    #>
+    [CmdletBinding()]
+    param([Parameter(Mandatory)]$Entity)
+
+    $signals = [System.Collections.Generic.List[string]]::new()
+
+    $statusConfig = $Entity.status.resources.config
+    if ($statusConfig) {
+        if ($statusConfig.hypervisor_types) { $signals.AddRange(@($statusConfig.hypervisor_types | ForEach-Object { [string]$_ })) }
+        if ($statusConfig.hypervisor_type) { $signals.Add([string]$statusConfig.hypervisor_type) }
+    }
+
+    $specConfig = $Entity.spec.resources.config
+    if ($specConfig) {
+        if ($specConfig.hypervisor_types) { $signals.AddRange(@($specConfig.hypervisor_types | ForEach-Object { [string]$_ })) }
+        if ($specConfig.hypervisor_type) { $signals.Add([string]$specConfig.hypervisor_type) }
+    }
+
+    $nodeList = $Entity.status.resources.nodes
+    if ($nodeList -and $nodeList.hypervisor_server_list) {
+        foreach ($srv in @($nodeList.hypervisor_server_list)) {
+            if ($srv.hypervisor_type) { $signals.Add([string]$srv.hypervisor_type) }
+            if ($srv.type) { $signals.Add([string]$srv.type) }
+        }
+    }
+
+    $combined = ($signals | Where-Object { $_ }) -join ' '
+    if ($combined -match '(?i)VMware|ESXi|kVMware') { return 'ESXi' }
+    if ($combined -match '(?i)KVM|kKvm|AHV|Acropolis') { return 'AHV' }
+    if ($combined -match '(?i)Hyper-?V|kHyperv') { return 'Hyper-V' }
+    return 'Unknown'
+}
+
 function Get-NutanixClusterInventory {
     <#
     .SYNOPSIS
@@ -104,7 +141,9 @@ function Get-NutanixClusterInventory {
     #>
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)][hashtable]$Session
+        [Parameter(Mandatory)][hashtable]$Session,
+        [ValidateSet('AHV', 'ESXi', 'All')]
+        [string]$HypervisorFilter = 'All'
     )
 
     $response = Invoke-NutanixApi -Session $Session -Path '/api/nutanix/v3/clusters/list' -Method Post -Body @{
@@ -134,12 +173,15 @@ function Get-NutanixClusterInventory {
             $version = $config.build_info.version
         }
 
+        $hypervisor = Resolve-NutanixClusterHypervisor -Entity $entity
+        if ($HypervisorFilter -ne 'All' -and $hypervisor -ne $HypervisorFilter) { continue }
+
         $inventory.Add([PSCustomObject]@{
             ClusterName = $name
             ClusterUuid = $uuid
             NodeCount   = $nodes
             AosVersion  = $version
-            Hypervisor  = 'AHV'
+            Hypervisor  = $hypervisor
         })
     }
 
@@ -381,6 +423,7 @@ function Invoke-NutanixApplicationServerStigAudit {
 Export-ModuleMember -Function @(
     'Connect-NutanixPrism',
     'Invoke-NutanixApi',
+    'Resolve-NutanixClusterHypervisor',
     'Get-NutanixClusterInventory',
     'Get-NutanixStigControlResults',
     'Invoke-NutanixNativeStigAudit',

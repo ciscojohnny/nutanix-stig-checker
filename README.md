@@ -5,7 +5,7 @@ PowerShell tool to audit **one cluster at a time** against DISA STIG checklists.
 | Workflow | Connect to | STIG checklists |
 |----------|------------|-----------------|
 | **AHV** | Prism Central or Prism Element | Acropolis Application Server, Acropolis GPOS |
-| **ESXi** | vCenter | ESXi, vCenter, optional VCSA appliance components |
+| **ESXi** | Prism Central or Prism Element, then vCenter | ESXi, vCenter, optional VCSA appliance components |
 
 ## Setup
 
@@ -35,10 +35,12 @@ Configure `outputPath`, `stigXmlPath`, and `skipCertificateCheck` if needed. Clu
 
 **ESXi flow:**
 1. Select **VMware ESXi**
-2. Enter **vCenter** FQDN/IP and credentials
-3. Pick a cluster from vCenter inventory
-4. Optional VCSA SSH checks
-5. Run audit
+2. Choose **Prism Central** or **Prism Element**
+3. Enter FQDN/IP, port, and credentials
+4. Pick an **ESXi cluster** from Prism inventory (AHV clusters are filtered out)
+5. Enter **vCenter** FQDN/IP and credentials (cluster name matched on vCenter)
+6. Optional VCSA SSH checks
+7. Run audit
 
 ### Direct mode (skip wizard)
 

@@ -70,6 +70,8 @@ function New-StigClusterSelection {
         [int]$ManagementPort = 0,
         $NodeCount = '?',
         [string]$PrismEndpointType = '',
+        [string]$PrismFqdn = '',
+        [int]$PrismPort = 0,
         [string]$ClusterUuid = ''
     )
 
@@ -82,12 +84,16 @@ function New-StigClusterSelection {
         443
     }
 
+    $prismLabel = if ($PrismEndpointType -eq 'PE') { 'Prism Element' } else { 'Prism Central' }
+
     $endpointLabel = switch ($WorkflowType) {
-        'AHV' {
-            if ($PrismEndpointType -eq 'PE') { 'Prism Element' } else { 'Prism Central' }
+        'AHV' { $prismLabel }
+        'ESXi' {
+            if ($PrismFqdn) { "$prismLabel → vCenter" } else { 'vCenter' }
         }
-        'ESXi' { 'vCenter' }
     }
+
+    $displayName = "$ClusterName [$WorkflowType, $NodeCount nodes — $endpointLabel]"
 
     [PSCustomObject]@{
         ClusterName         = $ClusterName
@@ -97,9 +103,11 @@ function New-StigClusterSelection {
         ManagementFqdn      = $ManagementFqdn
         ManagementPort      = $port
         PrismEndpointType   = $PrismEndpointType
-        ManagementLabel     = $endpointLabel
+        PrismFqdn           = $PrismFqdn
+        PrismPort           = if ($PrismPort -gt 0) { $PrismPort } else { 9440 }
+        ManagementLabel     = if ($WorkflowType -eq 'ESXi') { 'vCenter' } else { $prismLabel }
         StigChecklists      = $wf.StigChecklists
-        DisplayName         = "$ClusterName [$WorkflowType, $NodeCount nodes — $endpointLabel]"
+        DisplayName         = $displayName
     }
 }
 

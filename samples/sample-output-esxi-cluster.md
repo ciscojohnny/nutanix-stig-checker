@@ -26,6 +26,7 @@ Step 1: Select cluster type
 
   2. VMware ESXi
      STIGs: ESXi, vCenter, VCSA appliance components (optional SSH)
+     Discover ESXi cluster via Prism, then connect to vCenter
 
 Cluster type (1-2): 2
 
@@ -45,7 +46,29 @@ Cluster type (1-2): 2
     10. VMware vSphere 8.0 vCenter Appliance User Interface (UI)
     11. VMware vSphere 8.0 vCenter Appliance Perfcharts
 
-Step 2: vCenter connection
+Step 2: Nutanix management endpoint (discover ESXi cluster)
+  1. Prism Central  (lists all registered clusters)
+  2. Prism Element   (local cluster on a single PE instance)
+
+Endpoint type (1-2): 1
+
+Prism Central FQDN or IP: prism-central.example.mil
+Port [9440]:
+
+Prism Central credentials required for AHV checks.
+User: svc-stig-audit@example.mil
+Password for user svc-stig-audit@example.mil: ********
+
+Connecting to Prism Central at prism-central.example.mil:9440...
+Retrieving ESXi cluster inventory...
+
+Clusters discovered on Prism Central:
+  1. ESXi-Prod-3node (3 nodes | AOS 6.8.1.5 | ESXi)
+
+Cluster (1-1): 1
+
+Step 3: vCenter connection
+  ESXi cluster selected in Prism: ESXi-Prod-3node
 vCenter FQDN or IP: vcenter.example.mil
 
 vCenter SSO credentials required for ESXi checks.
@@ -53,14 +76,10 @@ User: administrator@vsphere.local
 Password for user administrator@vsphere.local: ********
 
 Connecting to vCenter at vcenter.example.mil...
-Retrieving cluster inventory...
+Matching cluster on vCenter...
+  Matched vCenter cluster: ESXi-Prod-3node (3 hosts)
 
-Clusters discovered on vCenter (vcenter.example.mil):
-  1. ESXi-Prod-3node (3 nodes)
-
-Cluster (1-1): 1
-
-Step 3: VCSA appliance STIG checks (SSH)
+Step 4: VCSA appliance STIG checks (SSH)
   Photon OS, PostgreSQL, VAMI, Envoy, EAM, Lookup, STS, UI, Perfcharts
 Include VCSA SSH appliance checks? [Y/n]: y
 
@@ -72,6 +91,7 @@ Password for user root: ********
     Name:       ESXi-Prod-3node
     Type:       ESXi
     Nodes:      3
+    Discovered: Prism Central (prism-central.example.mil:9440)
     Endpoint:   vCenter (vcenter.example.mil:443)
     UUID:       domain-c7
 
@@ -90,7 +110,7 @@ Run STIG audit on this cluster? [Y/n]: y
 ## Audit execution
 
 ```
-Starting audit: ESXi-Prod-3node [ESXi, 3 nodes — vCenter]
+Starting audit: ESXi-Prod-3node [ESXi, 3 nodes — Prism Central → vCenter]
 
   Workflow: VMware ESXi Cluster
   STIGs:
@@ -117,7 +137,7 @@ Starting audit: ESXi-Prod-3node [ESXi, 3 nodes — vCenter]
 
 ```
 ================================================================
-  Results: ESXi-Prod-3node [ESXi, 3 nodes — vCenter]
+  Results: ESXi-Prod-3node [ESXi, 3 nodes — Prism Central → vCenter]
 ================================================================
 
 === Cluster Summary ===
@@ -236,6 +256,7 @@ Total checks: 91
 
 ## Notes
 
+- **Prism discovery** identifies ESXi clusters via hypervisor type before prompting for vCenter credentials.
 - **ESXi checks** run per host in the selected vCenter cluster (3 hosts × ~15 automated checks = ~45 ESXi rows in this example).
 - **vCenter checks** are cluster-level (one vCenter per audit).
 - **VCSA appliance checks** require SSH enabled on the appliance; many component STIGs are flagged **Manual** with guidance to run VMware's official InSpec baselines for full accreditation coverage.
