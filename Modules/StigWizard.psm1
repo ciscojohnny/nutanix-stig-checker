@@ -141,6 +141,9 @@ function Connect-PrismFromWizard {
 
     Write-Host ''
     Write-Host "Connecting to $endpointLabel at ${fqdn}:${port}..." -ForegroundColor Cyan
+    if ($SkipCertificateCheck) {
+        Write-Host '  TLS certificate validation disabled for Nutanix API' -ForegroundColor DarkYellow
+    }
     $session = Connect-NutanixPrism -Fqdn $fqdn -Port $port -Credential $NutanixCredential `
         -SkipCertificateCheck:$SkipCertificateCheck
 

@@ -17,6 +17,8 @@ Copy-Item .\config\clusters.example.json .\config\clusters.json
 
 Configure `outputPath`, `stigXmlPath`, and `skipCertificateCheck` if needed. Cluster names and endpoints are entered at runtime.
 
+For lab or self-signed Prism certificates, either set `"skipCertificateCheck": true` in `config/clusters.json` or pass `-SkipCertificateCheck` on the command line.
+
 ## Usage
 
 ### Interactive wizard (default)
@@ -61,3 +63,18 @@ Configure `outputPath`, `stigXmlPath`, and `skipCertificateCheck` if needed. Clu
 ## Output
 
 Pass/fail summary and detail tables per cluster, exported to `./reports/` as CSV.
+
+## TLS / certificate errors (Prism)
+
+Prism Central and Prism Element often use enterprise or self-signed certificates. If you see errors like `PartialChain` or `RemoteCertificateNameMismatch`:
+
+```powershell
+# One-time for this run
+.\Invoke-StigAudit.ps1 -SkipCertificateCheck
+
+# Or persist in config
+Copy-Item .\config\clusters.example.json .\config\clusters.json
+# Set "skipCertificateCheck": true in clusters.json
+```
+
+Use the **exact FQDN** that matches the certificate SAN/CN when possible (name mismatch errors). Certificate skipping is intended for lab and assessment environments only.

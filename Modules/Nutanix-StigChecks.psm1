@@ -11,15 +11,7 @@ function Connect-NutanixPrism {
     )
 
     if ($SkipCertificateCheck) {
-        if ($PSVersionTable.PSVersion.Major -ge 7) {
-            $script:NtxSession = [System.Net.Http.HttpClientHandler]::new()
-        }
-        add-type @"
-using System.Net; using System.Security.Cryptography.X509Certificates;
-public class TrustAllCerts : ICertificatePolicy { public bool CheckValidationResult(ServicePoint sp, X509Certificate cert, WebRequest req, int problem) { return true; } }
-"@
-        [System.Net.ServicePointManager]::CertificatePolicy = New-Object TrustAllCerts
-        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.SecurityProtocolType]::Tls12
+        Write-Verbose 'Nutanix API calls will skip TLS certificate validation.'
     }
 
     $pair = "$($Credential.UserName):$($Credential.GetNetworkCredential().Password)"
@@ -27,14 +19,15 @@ public class TrustAllCerts : ICertificatePolicy { public bool CheckValidationRes
     $b64 = [Convert]::ToBase64String($bytes)
 
     @{
-        BaseUri = "https://${Fqdn}:${Port}"
-        Headers = @{
-            Authorization = "Basic $b64"
-            Accept        = 'application/json'
+        BaseUri              = "https://${Fqdn}:${Port}"
+        Headers              = @{
+            Authorization  = "Basic $b64"
+            Accept         = 'application/json'
             'Content-Type' = 'application/json'
         }
-        Credential = $Credential
-        Fqdn = $Fqdn
+        Credential           = $Credential
+        Fqdn                 = $Fqdn
+        SkipCertificateCheck = [bool]$SkipCertificateCheck
     }
 }
 
@@ -64,6 +57,9 @@ function Invoke-NutanixApi {
     }
     if ($Body) {
         $params.Body = ($Body | ConvertTo-Json -Depth 20)
+    }
+    if ($Session.SkipCertificateCheck) {
+        $params.SkipCertificateCheck = $true
     }
 
     Invoke-RestMethod @params
