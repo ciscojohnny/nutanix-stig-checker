@@ -1,6 +1,23 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
+function Get-ObjectProperty {
+    <#
+    .SYNOPSIS
+        Safe property read for PSCustomObject/JSON payloads under Set-StrictMode.
+    #>
+    [CmdletBinding()]
+    param(
+        $InputObject,
+        [Parameter(Mandatory)][string]$Name
+    )
+
+    if ($null -eq $InputObject) { return $null }
+    $property = $InputObject.PSObject.Properties[$Name]
+    if ($null -eq $property) { return $null }
+    return $property.Value
+}
+
 function New-StigResult {
     [CmdletBinding()]
     param(
@@ -228,6 +245,7 @@ function Invoke-SafeStigCheck {
 }
 
 Export-ModuleMember -Function @(
+    'Get-ObjectProperty',
     'New-StigResult',
     'Import-StigXccdfCatalog',
     'Get-DefaultStigCatalog',

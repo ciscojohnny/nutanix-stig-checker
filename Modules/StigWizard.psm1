@@ -1,6 +1,22 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
+function New-WizardResult {
+    param(
+        [Parameter(Mandatory)]$Cluster,
+        $NutanixCredential,
+        $VmwareCredential,
+        [bool]$IncludeVcsaSsh = $false
+    )
+
+    [PSCustomObject]@{
+        Cluster           = $Cluster
+        NutanixCredential = $NutanixCredential
+        VMwareCredential  = $VmwareCredential
+        IncludeVcsaSsh    = $IncludeVcsaSsh
+    }
+}
+
 function Write-WizardHeader {
     param([string]$Title)
     Write-Host ''
@@ -176,11 +192,8 @@ function Get-AhvClusterFromPrismWizard {
         -NodeCount $picked.NodeCount -PrismEndpointType $prism.PrismType -ClusterUuid $picked.ClusterUuid `
         -PrismFqdn $prism.Fqdn -PrismPort $prism.Port
 
-    return @{
-        Cluster            = $selection
-        NutanixCredential  = $prism.NutanixCredential
-        IncludeVcsaSsh     = $false
-    }
+    return New-WizardResult -Cluster $selection -NutanixCredential $prism.NutanixCredential `
+        -VmwareCredential $null -IncludeVcsaSsh:$false
 }
 
 function Get-EsxiClusterFromPrismWizard {
@@ -235,12 +248,8 @@ function Get-EsxiClusterFromPrismWizard {
         -NodeCount $vcMatch.NodeCount -ClusterUuid $vcMatch.ClusterUuid `
         -PrismEndpointType $prism.PrismType -PrismFqdn $prism.Fqdn -PrismPort $prism.Port
 
-    return @{
-        Cluster           = $selection
-        NutanixCredential = $prism.NutanixCredential
-        VMwareCredential  = $VmwareCredential
-        IncludeVcsaSsh    = $includeVcsaSsh
-    }
+    return New-WizardResult -Cluster $selection -NutanixCredential $prism.NutanixCredential `
+        -VmwareCredential $VmwareCredential -IncludeVcsaSsh:$includeVcsaSsh
 }
 
 function Invoke-StigClusterWizard {
@@ -284,7 +293,10 @@ function Invoke-StigClusterWizard {
         return $null
     }
 
-    return [PSCustomObject]$wizardData
+    return New-WizardResult -Cluster $wizardData.Cluster `
+        -NutanixCredential $wizardData.NutanixCredential `
+        -VmwareCredential $wizardData.VmwareCredential `
+        -IncludeVcsaSsh:$wizardData.IncludeVcsaSsh
 }
 
 function Invoke-StigWizardLoop {

@@ -1,6 +1,8 @@
 #Requires -Version 7.0
 Set-StrictMode -Version Latest
 
+Import-Module (Join-Path $PSScriptRoot 'StigFramework.psm1') -Force
+
 function Connect-NutanixPrism {
     [CmdletBinding()]
     param(
@@ -84,7 +86,7 @@ function Get-NutanixStigControlResults {
         if ($ClusterExtId) { $query['$filter'] = "clusterExtId eq '$ClusterExtId'" }
 
         $response = Invoke-NutanixApi -Session $Session -Path '/api/security/v4.1/report/stigs' -Query $query
-        $items = @($response.data)
+        $items = @(Get-ObjectProperty -InputObject $response -Name 'data')
         if ($items.Count -eq 0) { break }
         $all.AddRange($items)
         $page++
@@ -103,23 +105,40 @@ function Resolve-NutanixClusterHypervisor {
 
     $signals = [System.Collections.Generic.List[string]]::new()
 
-    $statusConfig = $Entity.status.resources.config
-    if ($statusConfig) {
-        if ($statusConfig.hypervisor_types) { $signals.AddRange(@($statusConfig.hypervisor_types | ForEach-Object { [string]$_ })) }
-        if ($statusConfig.hypervisor_type) { $signals.Add([string]$statusConfig.hypervisor_type) }
+    $status = Get-ObjectProperty -InputObject $Entity -Name 'status'
+    $statusResources = Get-ObjectProperty -InputObject $status -Name 'resources'
+    $statusConfig = Get-ObjectProperty -InputObject $statusResources -Name 'config'
+
+    if ($null -ne $statusConfig) {
+        $hypervisorTypes = Get-ObjectProperty -InputObject $statusConfig -Name 'hypervisor_types'
+        if ($hypervisorTypes) {
+            $signals.AddRange(@($hypervisorTypes | ForEach-Object { [string]$_ }))
+        }
+        $hypervisorType = Get-ObjectProperty -InputObject $statusConfig -Name 'hypervisor_type'
+        if ($hypervisorType) { $signals.Add([string]$hypervisorType) }
     }
 
-    $specConfig = $Entity.spec.resources.config
-    if ($specConfig) {
-        if ($specConfig.hypervisor_types) { $signals.AddRange(@($specConfig.hypervisor_types | ForEach-Object { [string]$_ })) }
-        if ($specConfig.hypervisor_type) { $signals.Add([string]$specConfig.hypervisor_type) }
+    $spec = Get-ObjectProperty -InputObject $Entity -Name 'spec'
+    $specResources = Get-ObjectProperty -InputObject $spec -Name 'resources'
+    $specConfig = Get-ObjectProperty -InputObject $specResources -Name 'config'
+
+    if ($null -ne $specConfig) {
+        $hypervisorTypes = Get-ObjectProperty -InputObject $specConfig -Name 'hypervisor_types'
+        if ($hypervisorTypes) {
+            $signals.AddRange(@($hypervisorTypes | ForEach-Object { [string]$_ }))
+        }
+        $hypervisorType = Get-ObjectProperty -InputObject $specConfig -Name 'hypervisor_type'
+        if ($hypervisorType) { $signals.Add([string]$hypervisorType) }
     }
 
-    $nodeList = $Entity.status.resources.nodes
-    if ($nodeList -and $nodeList.hypervisor_server_list) {
-        foreach ($srv in @($nodeList.hypervisor_server_list)) {
-            if ($srv.hypervisor_type) { $signals.Add([string]$srv.hypervisor_type) }
-            if ($srv.type) { $signals.Add([string]$srv.type) }
+    $nodeList = Get-ObjectProperty -InputObject $statusResources -Name 'nodes'
+    $hypervisorServerList = Get-ObjectProperty -InputObject $nodeList -Name 'hypervisor_server_list'
+    if ($hypervisorServerList) {
+        foreach ($srv in @($hypervisorServerList)) {
+            $srvHypervisor = Get-ObjectProperty -InputObject $srv -Name 'hypervisor_type'
+            if ($srvHypervisor) { $signals.Add([string]$srvHypervisor) }
+            $srvType = Get-ObjectProperty -InputObject $srv -Name 'type'
+            if ($srvType) { $signals.Add([string]$srvType) }
         }
     }
 
@@ -149,24 +168,37 @@ function Get-NutanixClusterInventory {
     }
 
     $inventory = [System.Collections.Generic.List[object]]::new()
-    foreach ($entity in @($response.entities)) {
-        $name = $entity.status.name
-        $uuid = $entity.metadata.uuid
-        $nodeList = $entity.status.resources.nodes
-        $nodes = if ($nodeList -and $nodeList.hypervisor_server_list) {
-            @($nodeList.hypervisor_server_list).Count
-        } elseif ($entity.status.resources.node_uuids) {
-            @($entity.status.resources.node_uuids).Count
+    foreach ($entity in @(Get-ObjectProperty -InputObject $response -Name 'entities')) {
+        $status = Get-ObjectProperty -InputObject $entity -Name 'status'
+        $name = Get-ObjectProperty -InputObject $status -Name 'name'
+        $metadata = Get-ObjectProperty -InputObject $entity -Name 'metadata'
+        $uuid = Get-ObjectProperty -InputObject $metadata -Name 'uuid'
+        $statusResources = Get-ObjectProperty -InputObject $status -Name 'resources'
+        $nodeList = Get-ObjectProperty -InputObject $statusResources -Name 'nodes'
+        $hypervisorServerList = Get-ObjectProperty -InputObject $nodeList -Name 'hypervisor_server_list'
+        $nodeUuids = Get-ObjectProperty -InputObject $statusResources -Name 'node_uuids'
+
+        $nodes = if ($hypervisorServerList) {
+            @($hypervisorServerList).Count
+        } elseif ($nodeUuids) {
+            @($nodeUuids).Count
         } else {
             '?'
         }
 
-        $config = $entity.status.resources.config
+        $config = Get-ObjectProperty -InputObject $statusResources -Name 'config'
         $version = ''
-        if ($config -and $config.software_map -and $config.software_map.NOS) {
-            $version = $config.software_map.NOS.version
-        } elseif ($config -and $config.build_info) {
-            $version = $config.build_info.version
+        if ($null -ne $config) {
+            $softwareMap = Get-ObjectProperty -InputObject $config -Name 'software_map'
+            $nos = Get-ObjectProperty -InputObject $softwareMap -Name 'NOS'
+            if ($nos) {
+                $version = Get-ObjectProperty -InputObject $nos -Name 'version'
+            } else {
+                $buildInfo = Get-ObjectProperty -InputObject $config -Name 'build_info'
+                if ($buildInfo) {
+                    $version = Get-ObjectProperty -InputObject $buildInfo -Name 'version'
+                }
+            }
         }
 
         $hypervisor = Resolve-NutanixClusterHypervisor -Entity $entity
@@ -195,11 +227,15 @@ function Get-NutanixClusterMap {
     }
 
     $map = @{}
-    foreach ($c in @($clusters.entities)) {
-        $extId = $c.metadata.uuid
-        $name = $c.status.name
-        $map[$name] = $extId
-        $map[$extId] = $name
+    foreach ($c in @(Get-ObjectProperty -InputObject $clusters -Name 'entities')) {
+        $metadata = Get-ObjectProperty -InputObject $c -Name 'metadata'
+        $extId = Get-ObjectProperty -InputObject $metadata -Name 'uuid'
+        $status = Get-ObjectProperty -InputObject $c -Name 'status'
+        $name = Get-ObjectProperty -InputObject $status -Name 'name'
+        if ($name -and $extId) {
+            $map[$name] = $extId
+            $map[$extId] = $name
+        }
     }
     return $map
 }
@@ -261,11 +297,24 @@ function Invoke-NutanixNativeStigAudit {
         }
 
         foreach ($ctrl in $controls) {
-            $ruleId = if ($ctrl.ruleId) { $ctrl.ruleId } elseif ($ctrl.stigRuleId) { $ctrl.stigRuleId } else { "NTNX-$($ctrl.extId)" }
-            $title = if ($ctrl.title) { $ctrl.title } elseif ($ctrl.name) { $ctrl.name } else { 'Nutanix STIG control' }
-            $severity = ($ctrl.severity ?? 'medium').ToString().ToLower()
-            $status = Convert-NutanixStigStatus -ApiStatus $ctrl.status -ComplianceStatus $ctrl.complianceStatus
-            $details = if ($ctrl.remediation) { $ctrl.remediation } elseif ($ctrl.description) { $ctrl.description } else { '' }
+            $ruleIdVal = Get-ObjectProperty -InputObject $ctrl -Name 'ruleId'
+            $stigRuleIdVal = Get-ObjectProperty -InputObject $ctrl -Name 'stigRuleId'
+            $extIdVal = Get-ObjectProperty -InputObject $ctrl -Name 'extId'
+            $ruleId = if ($ruleIdVal) { $ruleIdVal } elseif ($stigRuleIdVal) { $stigRuleIdVal } else { "NTNX-$extIdVal" }
+
+            $titleVal = Get-ObjectProperty -InputObject $ctrl -Name 'title'
+            $nameVal = Get-ObjectProperty -InputObject $ctrl -Name 'name'
+            $title = if ($titleVal) { $titleVal } elseif ($nameVal) { $nameVal } else { 'Nutanix STIG control' }
+
+            $severityRaw = Get-ObjectProperty -InputObject $ctrl -Name 'severity'
+            $severity = (($severityRaw ?? 'medium').ToString().ToLower())
+
+            $status = Convert-NutanixStigStatus -ApiStatus (Get-ObjectProperty -InputObject $ctrl -Name 'status') `
+                -ComplianceStatus (Get-ObjectProperty -InputObject $ctrl -Name 'complianceStatus')
+
+            $remediation = Get-ObjectProperty -InputObject $ctrl -Name 'remediation'
+            $description = Get-ObjectProperty -InputObject $ctrl -Name 'description'
+            $details = if ($remediation) { $remediation } elseif ($description) { $description } else { '' }
 
             $results.Add((New-StigResult -Cluster $clusterName -Target $target -StigName $StigName `
                 -RuleId $ruleId -Severity $severity -Title $title -Status $status -Details $details))
@@ -315,7 +364,12 @@ function Invoke-NutanixApplicationServerStigAudit {
             $ntp = Invoke-NutanixApi -Session $Session -Path '/api/nutanix/v3/ntp_servers' -Method Post -Body @{
                 kind = 'ntp_server'; length = 10; offset = 0
             }
-            $servers = @($ntp.entities | ForEach-Object { $_.status.resources.ntp_server_ip_list }) | Where-Object { $_ }
+            $ntpEntities = @(Get-ObjectProperty -InputObject $ntp -Name 'entities')
+            $servers = @($ntpEntities | ForEach-Object {
+                $entityStatus = Get-ObjectProperty -InputObject $_ -Name 'status'
+                $entityResources = Get-ObjectProperty -InputObject $entityStatus -Name 'resources'
+                Get-ObjectProperty -InputObject $entityResources -Name 'ntp_server_ip_list'
+            }) | Where-Object { $_ }
             if ($servers.Count -gt 0) {
                 return @{ Status = 'Pass'; Actual = ($servers -join ', '); Details = 'NTP servers configured in PC' }
             }
@@ -336,8 +390,12 @@ function Invoke-NutanixApplicationServerStigAudit {
             $dirs = Invoke-NutanixApi -Session $Session -Path '/api/nutanix/v3/directory_services/list' -Method Post -Body @{
                 kind = 'directory_service'; length = 50; offset = 0
             }
-            if (@($dirs.entities).Count -gt 0) {
-                $names = $dirs.entities | ForEach-Object { $_.spec.name }
+            $dirEntities = @(Get-ObjectProperty -InputObject $dirs -Name 'entities')
+            if ($dirEntities.Count -gt 0) {
+                $names = $dirEntities | ForEach-Object {
+                    $entitySpec = Get-ObjectProperty -InputObject $_ -Name 'spec'
+                    Get-ObjectProperty -InputObject $entitySpec -Name 'name'
+                }
                 return @{ Status = 'Pass'; Actual = ($names -join ', '); Details = 'Directory service integration configured' }
             }
             return @{ Status = 'Fail'; Details = 'No directory services configured' }
@@ -357,12 +415,22 @@ function Invoke-NutanixApplicationServerStigAudit {
             $dirs = Invoke-NutanixApi -Session $Session -Path '/api/nutanix/v3/directory_services/list' -Method Post -Body @{
                 kind = 'directory_service'; length = 50; offset = 0
             }
-            $ldap = @($dirs.entities | Where-Object { $_.spec.resources -and $_.spec.resources.domain_name })
+            $dirEntities = @(Get-ObjectProperty -InputObject $dirs -Name 'entities')
+            $ldap = @($dirEntities | Where-Object {
+                $entitySpec = Get-ObjectProperty -InputObject $_ -Name 'spec'
+                $entityResources = Get-ObjectProperty -InputObject $entitySpec -Name 'resources'
+                Get-ObjectProperty -InputObject $entityResources -Name 'domain_name'
+            })
             if ($ldap.Count -eq 0) {
                 return @{ Status = 'NotApplicable'; Details = 'LDAP not in use' }
             }
             $insecure = $ldap | Where-Object {
-                $url = $_.spec.resources.url ?? $_.spec.resources.directory_url
+                $entitySpec = Get-ObjectProperty -InputObject $_ -Name 'spec'
+                $entityResources = Get-ObjectProperty -InputObject $entitySpec -Name 'resources'
+                $url = Get-ObjectProperty -InputObject $entityResources -Name 'url'
+                if (-not $url) {
+                    $url = Get-ObjectProperty -InputObject $entityResources -Name 'directory_url'
+                }
                 $url -match '^ldap://'
             }
             if ($insecure) {
